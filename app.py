@@ -350,6 +350,8 @@ def fetch_active_by_weekday(days: int = 28) -> pd.DataFrame:
 app = Dash(__name__)
 app.title = "MechConnect Dashboard"
 
+server = app.server
+
 app.layout = html.Div(
     style={"backgroundColor": "#F5F5F5", "minHeight": "100vh",
            "fontFamily": "'Inter', sans-serif"},
@@ -1048,4 +1050,6 @@ def update_dashboard(top_issues_window, parts_window, steps_window, comp_window,
 
 # ── Run server ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    # port = int(os.environ.get("PORT", 8050))      # use $PORT on Render, fall back to 8050 locally
+    # app.run(host="0.0.0.0", port=port, debug=False)
     app.run(debug=True)
