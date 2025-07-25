@@ -1,7 +1,7 @@
 import os
 from pymongo import MongoClient
 import pandas as pd
-
+import json
 from dash import Dash, html, dcc, Output, Input
 import plotly.express as px
 from datetime import datetime, timedelta, timezone
@@ -10,16 +10,36 @@ from datetime import timedelta
 from google.analytics.data import BetaAnalyticsDataClient
 from google.analytics.data_v1beta.types import DateRange, Dimension, Metric, RunReportRequest
 from google.oauth2 import service_account
+from dotenv import load_dotenv
 
 # path to your service-account JSON
 KEY_PATH = "ga-credentials.json"
 PROPERTY_ID = "484780893"  # e.g. "123456789"
+
+# credentials = service_account.Credentials.from_service_account_file(
+#     KEY_PATH,
+#     scopes=["https://www.googleapis.com/auth/analytics.readonly"]
+# )
+# ga_client = BetaAnalyticsDataClient(credentials=credentials)
+
+
+# Load variables from .env
+load_dotenv()
+
+# Now read the path to your JSON key
+KEY_PATH = os.environ.get("GA_CREDENTIALS_JSON")
+if not KEY_PATH:
+    raise RuntimeError("Missing GOOGLE_APPLICATION_CREDENTIALS env var")
+
+from google.oauth2 import service_account
+from google.analytics.data_v1beta import BetaAnalyticsDataClient
 
 credentials = service_account.Credentials.from_service_account_file(
     KEY_PATH,
     scopes=["https://www.googleapis.com/auth/analytics.readonly"]
 )
 ga_client = BetaAnalyticsDataClient(credentials=credentials)
+
 
 # ── Load config ────────────────────────────────────────────────────────────────
 MONGO_URI = "mongodb+srv://dbMechConnect:mWw7W5R70NN3tLU@cluster0.3trcy.mongodb.net/mech-connect-lott-dev"
@@ -1050,6 +1070,6 @@ def update_dashboard(top_issues_window, parts_window, steps_window, comp_window,
 
 # ── Run server ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    # port = int(os.environ.get("PORT", 8050))      # use $PORT on Render, fall back to 8050 locally
-    # app.run(host="0.0.0.0", port=port, debug=False)
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 8050))
+    app.run(host="0.0.0.0", port=port, debug=False)
+    # app.run(debug=True)
