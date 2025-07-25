@@ -384,7 +384,7 @@ app.layout = html.Div(
                 "boxShadow": "0 2px 4px rgba(0,0,0,0.1)"
             },
             children=html.Img(
-                src="/assets/mechconnect_logo.png",
+                src="/assets/mechconnect-logo.svg",
                 style={"height": "40px"}
             )
         ),
