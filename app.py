@@ -65,29 +65,6 @@ def fetch_total_chats() -> int:
     return chatthreads_col.count_documents({})
 
 
-# def fetch_avg_steps_last_week(days: int = 7) -> pd.DataFrame:
-#     """
-#     For each of the last `days` days, compute the average number of messages
-#     in the chatthreads collection.
-#     """
-#     cutoff = datetime.utcnow() - timedelta(days=days-1)
-#     pipeline = [
-#         {"$match": {"created_at": {"$gte": cutoff}}},
-#         {"$project": {
-#             "day": {"$dateToString": {"format": "%Y-%m-%d", "date": "$created_at"}},
-#             "count": {"$size": {"$ifNull": ["$messages", []]}}
-#         }},
-#         {"$group": {"_id": "$day", "avg_steps": {"$avg": "$count"}}},
-#         {"$sort": {"_id": 1}}
-#     ]
-#     res = list(chatthreads_col.aggregate(pipeline))
-#     if not res:
-#         return pd.DataFrame(columns=["day", "avg_steps"])
-#     df = pd.DataFrame(res).rename(columns={"_id": "day"})
-#     df["day"] = pd.to_datetime(df["day"])
-#     return df
-
-
 def fetch_avg_steps(window: str = "7d") -> pd.DataFrame:
     """
     Compute average # messages per diagnosis over a rolling window:
@@ -167,24 +144,6 @@ def fetch_top_models(limit: int = 5) -> pd.DataFrame:
         return pd.DataFrame(columns=["model", "count"])
     return pd.DataFrame(res).rename(columns={"_id": "model"})
 
-
-# def fetch_completion_rate() -> pd.DataFrame:
-#     """
-#     Returns a DataFrame with two rows:
-#     - status: "Completed" or "Incomplete"
-#     - count: number of sessions
-#     """
-#     total = chatthreads_col.count_documents({})
-#     completed = suggestions_col.count_documents({
-#         "problemsReasons": {"$exists": True, "$ne": []},
-#         "carParts":       {"$exists": True, "$ne": []},
-#         "effectedParts":  {"$exists": True}
-#     })
-#     incomplete = max(total - completed, 0)
-#     return pd.DataFrame([
-#         {"status": "Completed",   "count": completed},
-#         {"status": "Incomplete",  "count": incomplete}
-#     ])
 
 def fetch_completion_rate(window: str = "all") -> pd.DataFrame:
     """
