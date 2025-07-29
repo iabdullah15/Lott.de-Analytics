@@ -1,3 +1,4 @@
+from google.analytics.data_v1beta import BetaAnalyticsDataClient
 import os
 from pymongo import MongoClient
 import pandas as pd
@@ -31,8 +32,6 @@ KEY_PATH = os.environ.get("GA_CREDENTIALS_JSON")
 if not KEY_PATH:
     raise RuntimeError("Missing GOOGLE_APPLICATION_CREDENTIALS env var")
 
-from google.oauth2 import service_account
-from google.analytics.data_v1beta import BetaAnalyticsDataClient
 
 credentials = service_account.Credentials.from_service_account_file(
     KEY_PATH,
@@ -119,46 +118,64 @@ def fetch_avg_steps(window: str = "7d") -> pd.DataFrame:
     return df
 
 
-def fetch_top_makes(limit: int = 5) -> pd.DataFrame:
-    pipeline = [
-        # 1) Only include threads with a non-empty manufacturer
-        {"$match": {
-            "vehicle_info.manufacturer": {
-                "$exists": True,
-                "$nin": [None, ""]
-            }
-        }},
-        # 2) Group & count by that manufacturer
-        {"$group": {
-            "_id": "$vehicle_info.manufacturer",
-            "count": {"$sum": 1}
-        }},
-        # 3) Sort & limit
+def fetch_top_makes(window: str = "all", limit: int = 5) -> pd.DataFrame:
+    """
+    window: one of "7d", "30d", "90d", or "all"
+    """
+    pipeline = []
+
+    # 1) optionally filter by created_at
+    if window != "all":
+        days = int(window[:-1])
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        pipeline.append({"$match": {"created_at": {"$gte": cutoff}}})
+
+    # 2) only include threads with a non-empty manufacturer
+    pipeline.append({
+        "$match": {
+            "vehicle_info.manufacturer": {"$exists": True, "$nin": [None, ""]}
+        }
+    })
+
+    # 3) Group & count
+    pipeline += [
+        {"$group": {"_id": "$vehicle_info.manufacturer", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
         {"$limit": limit}
     ]
+
     results = list(chatthreads_col.aggregate(pipeline))
     if not results:
         return pd.DataFrame(columns=["make", "count"])
-    df = pd.DataFrame(results).rename(columns={"_id": "make"})
-    return df
+    return pd.DataFrame(results).rename(columns={"_id": "make"})
 
 
-def fetch_top_models(limit: int = 5) -> pd.DataFrame:
-    pipeline = [
-        # only docs where series exists and is non-empty
-        {"$match": {
+def fetch_top_models(window: str = "all", limit: int = 5) -> pd.DataFrame:
+    """
+    window: one of "7d", "30d", "90d", or "all"
+    """
+    pipeline = []
+
+    # 1) time‐window filter
+    if window != "all":
+        days = int(window[:-1])
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        pipeline.append({"$match": {"created_at": {"$gte": cutoff}}})
+
+    # 2) only docs where series exists and non-empty
+    pipeline.append({
+        "$match": {
             "vehicle_info.series": {"$exists": True, "$nin": [None, ""]}
-        }},
-        # group & count
-        {"$group": {
-            "_id": "$vehicle_info.series",
-            "count": {"$sum": 1}
-        }},
-        # sort & limit
+        }
+    })
+
+    # 3) group, sort, limit
+    pipeline += [
+        {"$group": {"_id": "$vehicle_info.series", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
         {"$limit": limit}
     ]
+
     res = list(chatthreads_col.aggregate(pipeline))
     if not res:
         return pd.DataFrame(columns=["model", "count"])
@@ -198,15 +215,62 @@ def fetch_completion_rate(window: str = "all") -> pd.DataFrame:
     ])
 
 
-def fetch_avg_diagnosis_time_by_month() -> pd.DataFrame:
+# def fetch_avg_diagnosis_time_by_month() -> pd.DataFrame:
+#     """
+#     Join suggestions -> chatthreads, compute (suggestion.created_at - thread.created_at)
+#     in hours, then average per month.
+#     """
+#     pipeline = [
+#         # Only suggestions that reference a chatThread
+#         {"$match": {"chatThread": {"$exists": True}}},
+#         # Lookup the chatthreads document
+#         {"$lookup": {
+#             "from": "chatthreads",
+#             "localField": "chatThread",
+#             "foreignField": "_id",
+#             "as": "thread"
+#         }},
+#         {"$unwind": "$thread"},
+#         # Compute month and diff in hours
+#         {"$project": {
+#             "month": {"$dateToString": {"format": "%Y-%m", "date": "$created_at"}},
+#             "durationHours": {
+#                 "$divide": [
+#                     {"$subtract": ["$created_at", "$thread.created_at"]},
+#                     1000 * 60
+#                 ]
+#             }
+#         }},
+#         {"$group": {
+#             "_id": "$month",
+#             "avg_time": {"$avg": "$durationHours"}
+#         }},
+#         {"$sort": {"_id": 1}}
+#     ]
+#     res = list(suggestions_col.aggregate(pipeline))
+#     if not res:
+#         return pd.DataFrame(columns=["month", "avg_time"])
+#     df = pd.DataFrame(res).rename(columns={"_id": "month"})
+#     df["month"] = pd.to_datetime(df["month"] + "-01")
+#     return df
+
+
+def fetch_avg_diagnosis_time_by_month(window: str = "all") -> pd.DataFrame:
     """
-    Join suggestions -> chatthreads, compute (suggestion.created_at - thread.created_at)
-    in hours, then average per month.
+    window: one of "7d", "30d", "90d", or "all"
+    Always returns columns ['date','avg_time'] where date is a pandas.Timestamp.
     """
-    pipeline = [
-        # Only suggestions that reference a chatThread
+    pipeline = []
+
+    # 1) apply time‐window filter
+    if window != "all":
+        days = int(window[:-1])
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        pipeline.append({"$match": {"created_at": {"$gte": cutoff}}})
+
+    # 2) only include completed suggestions
+    pipeline += [
         {"$match": {"chatThread": {"$exists": True}}},
-        # Lookup the chatthreads document
         {"$lookup": {
             "from": "chatthreads",
             "localField": "chatThread",
@@ -214,27 +278,36 @@ def fetch_avg_diagnosis_time_by_month() -> pd.DataFrame:
             "as": "thread"
         }},
         {"$unwind": "$thread"},
-        # Compute month and diff in hours
+    ]
+
+    # 3) choose daily vs monthly grouping
+    if window in ("7d", "30d"):
+        grp_fmt = "%Y-%m-%d"
+        post_process = lambda s: pd.to_datetime(s)         # parse date strings
+    else:
+        grp_fmt = "%Y-%m"
+        post_process = lambda s: pd.to_datetime(s + "-01")  # first of month
+
+    pipeline += [
         {"$project": {
-            "month": {"$dateToString": {"format": "%Y-%m", "date": "$created_at"}},
-            "durationHours": {
+            "date": {"$dateToString": {"format": grp_fmt, "date": "$created_at"}},
+            "durationMins": {
                 "$divide": [
                     {"$subtract": ["$created_at", "$thread.created_at"]},
                     1000 * 60
                 ]
             }
         }},
-        {"$group": {
-            "_id": "$month",
-            "avg_time": {"$avg": "$durationHours"}
-        }},
+        {"$group": {"_id": "$date", "avg_time": {"$avg": "$durationMins"}}},
         {"$sort": {"_id": 1}}
     ]
+
     res = list(suggestions_col.aggregate(pipeline))
     if not res:
-        return pd.DataFrame(columns=["month", "avg_time"])
-    df = pd.DataFrame(res).rename(columns={"_id": "month"})
-    df["month"] = pd.to_datetime(df["month"] + "-01")
+        return pd.DataFrame(columns=["date", "avg_time"])
+
+    df = pd.DataFrame(res).rename(columns={"_id": "date"})
+    df["date"] = post_process(df["date"])
     return df
 
 
@@ -380,35 +453,83 @@ app.layout = html.Div(
                     children=[
                         # Top 5 Car Makes Diagnosed
                         html.Div(
+                            style={"flex": "1", "backgroundColor": "#FFFFFF",
+                                   "padding": "20px", "borderRadius": "8px"},
+                            children=[
+                                # Header row: title + dropdown
+                                html.Div(
+                                    style={"display": "flex", "justifyContent": "space-between",
+                                           "alignItems": "center", "marginBottom": "10px"},
+                                    children=[
+                                        html.H4("Top Car Makes Diagnosed",
+                                                style={"margin": 0}),
+                                        dcc.Dropdown(
+                                            id="makes-window-dropdown",
+                                            options=[
+                                                {"label": "Last 7 days",
+                                                    "value": "7d"},
+                                                {"label": "Last 30 days",
+                                                    "value": "30d"},
+                                                {"label": "Last 90 days",
+                                                    "value": "90d"},
+                                                {"label": "All time",
+                                                    "value": "all"},
+                                            ],
+                                            value="all",
+                                            clearable=False,
+                                            style={"width": "150px"}
+                                        )
+                                    ]
+                                ),
+                                # The chart itself
+                                dcc.Graph(id="top-makes-chart",
+                                          style={"height": "360px", "width": "100%"})
+                            ]
+                        ),
+                        # Top 5 Car Models Diagnosed
+                        html.Div(
                             style={
-                                "flex": "1",
+                                "flex":  "1",
                                 "backgroundColor": "#FFFFFF",
                                 "padding": "20px",
                                 "borderRadius": "8px"
                             },
                             children=[
-                                html.H4("Top Car Makes Diagnosed",
-                                        style={"marginTop": 0}),
-                                dcc.Graph(
-                                    id="top-makes-chart",
-                                    style={"height": "360px", "width": "100%"}
-                                )
-                            ]
-                        ),
-                        # Top 5 Car Models Diagnosed
-                        html.Div(
-                            style={"flex": "1",
-                                   "backgroundColor": "#FFFFFF",
-                                   "padding": "20px",
-                                   "borderRadius": "8px"
-                                   },
-                            children=[
-                                html.H4("Top 5 Car Models Diagnosed",
-                                        style={"marginTop": 0}),
+                                # header row: title + window‐dropdown
+                                html.Div(
+                                    style={
+                                        "display":        "flex",
+                                        "justifyContent": "space-between",
+                                        "alignItems":     "center",
+                                        "marginBottom":   "10px"
+                                    },
+                                    children=[
+                                        html.H4("Top 5 Car Models Diagnosed", style={
+                                                "margin": 0}),
+                                        dcc.Dropdown(
+                                            id="models-window-dropdown",
+                                            options=[
+                                                {"label": "Last 7 days",
+                                                    "value": "7d"},
+                                                {"label": "Last 30 days",
+                                                    "value": "30d"},
+                                                {"label": "Last 90 days",
+                                                    "value": "90d"},
+                                                {"label": "All time",
+                                                    "value": "all"},
+                                            ],
+                                            value="all",
+                                            clearable=False,
+                                            style={"width": "150px"}
+                                        )
+                                    ]
+                                ),
+
+                                # the actual bar chart
                                 dcc.Graph(id="top-models-chart",
                                           style={"height": "360px", "width": "100%"})
                             ]
-                        )
+                        ),
                     ]
                 ),
 
@@ -621,10 +742,36 @@ app.layout = html.Div(
                     style={"marginTop": "40px", "backgroundColor": "#FFFFFF",
                            "padding": "20px", "borderRadius": "8px"},
                     children=[
-                        html.H4("Avg. Diagnosis Time",
-                                style={"marginTop": 0}),
-                        dcc.Graph(id="avg-diagnosis-time-chart",
-                                  style={"height": "360px", "width": "100%"})
+                        # ─── header row ──────────────────────────────────────────────
+                        html.Div(
+                            style={
+                                "display":        "flex",
+                                "justifyContent": "space-between",
+                                "alignItems":     "center",
+                                "marginBottom":   "10px"
+                            },
+                            children=[
+                                html.H4("Avg. Diagnosis Time",
+                                        style={"margin": 0}),
+                                dcc.Dropdown(
+                                    id="time-window-dropdown",
+                                    options=[
+                                        {"label": "Last 7 days",  "value": "7d"},
+                                        {"label": "Last 30 days", "value": "30d"},
+                                        {"label": "Last 90 days", "value": "90d"},
+                                        {"label": "All time",     "value": "all"},
+                                    ],
+                                    value="all",
+                                    clearable=False,
+                                    style={"width": "150px"}
+                                )
+                            ]
+                        ),
+                        # ─── the chart itself ────────────────────────────────────────
+                        dcc.Graph(
+                            id="avg-diagnosis-time-chart",
+                            style={"height": "360px", "width": "100%"}
+                        )
                     ]
                 ),
 
@@ -689,13 +836,18 @@ app.layout = html.Div(
         Input("issues-window-dropdown", "value"),
         Input("parts-window-dropdown", "value"),
         Input("steps-window-dropdown", "value"),
-        Input("completion-window-dropdown","value"),  # ← here
+        Input("completion-window-dropdown", "value"),
+        Input("makes-window-dropdown", "value"),      # ← new
+        Input("models-window-dropdown", "value"),  # ← new
+        Input("time-window-dropdown",    "value"),    # ← new
         Input("interval-component",       "n_intervals")
     ]
 )
-def update_dashboard(top_issues_window, parts_window, steps_window, comp_window, n):
+def update_dashboard(top_issues_window, parts_window, steps_window, comp_window, makes_window, models_window, time_window, n):
+
     # Top 5 makes
-    df_makes = fetch_top_makes()
+
+    df_makes = fetch_top_makes(window=makes_window)
     if df_makes.empty:
         fig_makes = px.bar(title="No data")
     else:
@@ -709,7 +861,7 @@ def update_dashboard(top_issues_window, parts_window, steps_window, comp_window,
             margin={"l": 140, "r": 20, "t": 20, "b": 20},
             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
         )
-        # right-edge border
+        # draw right-edge border
         y0, y1 = fig_makes.layout.yaxis.domain
         span = (y1 - y0) / max(len(df_makes), 1)
         for i, row in df_makes.iterrows():
@@ -723,14 +875,17 @@ def update_dashboard(top_issues_window, parts_window, steps_window, comp_window,
                 line=dict(color="#EC6936", width=3)
             )
 
-    # Top 5 models
-    df_models = fetch_top_models()
+    df_models = fetch_top_models(window=models_window)
     if df_models.empty:
         fig_models = px.bar(title="No data")
+        fig_models.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
+        )
     else:
         fig_models = px.bar(
             df_models, x="count", y="model", orientation="h",
-            labels={"count": "Occurrences", "model": "Model"}, height=360
+            labels={"count": "Occurrences", "model": "Model"},
+            height=360
         )
         fig_models.update_traces(marker_color="#E8E8E8", marker_line_width=0)
         fig_models.update_layout(
@@ -738,12 +893,14 @@ def update_dashboard(top_issues_window, parts_window, steps_window, comp_window,
             margin={"l": 140, "r": 20, "t": 20, "b": 20},
             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)"
         )
+
+        # draw the little orange tick at bar‐ends
         y0, y1 = fig_models.layout.yaxis.domain
-        span = (y1-y0)/max(len(df_models), 1)
+        span = (y1 - y0) / max(len(df_models), 1)
         for i, row in df_models.iterrows():
             cnt = row["count"]
-            center = y1 - span*(i+0.5)
-            half = span*0.4
+            center = y1 - span*(i + 0.5)
+            half = span * 0.4
             fig_models.add_shape(
                 type="line", x0=cnt, x1=cnt,
                 y0=center-half, y1=center+half,
@@ -793,8 +950,7 @@ def update_dashboard(top_issues_window, parts_window, steps_window, comp_window,
     # Total chats
     total_chats = fetch_total_chats()
 
-    # Avg steps chart
-# —— Avg steps chart —— #
+    # —— Avg steps chart —— #
     df_avg = fetch_avg_steps(window=steps_window)
     if df_avg.empty:
         fig_avg = px.line(title="No data")
@@ -875,9 +1031,9 @@ def update_dashboard(top_issues_window, parts_window, steps_window, comp_window,
         x0, x1 = fig_comp.layout.xaxis.domain
         span = (x1 - x0) / len(df_comp)
         for i, row in df_comp.iterrows():
-            cnt    = row["count"]
+            cnt = row["count"]
             center = x0 + span*(i + 0.5)
-            half   = span * 0.4
+            half = span * 0.4
             fig_comp.add_shape(
                 type="line",
                 xref="paper", yref="y",
@@ -886,19 +1042,29 @@ def update_dashboard(top_issues_window, parts_window, steps_window, comp_window,
                 line=dict(color="#EC6936", width=3)
             )
 
-        # ─ Avg diagnosis time by month ──────────────────────────────────────────────
-    df_time = fetch_avg_diagnosis_time_by_month()
+# ── Avg diagnosis time chart ────────────────────────────────────
+    df_time = fetch_avg_diagnosis_time_by_month(window=time_window)
     if df_time.empty:
         fig_time = px.line(title="No data")
-        fig_time.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
     else:
-        fig_time = px.line(df_time, x="month", y="avg_time",
-                           labels={"month": "Month", "avg_time": "Avg Mins"}, height=360)
+        fig_time = px.line(
+            df_time, x="date", y="avg_time",
+            labels={"date": "Day", "avg_time": "Avg Mins"},
+            height=360, line_shape="spline"
+        )
         fig_time.update_traces(line=dict(color="#EC6936"), marker=dict(size=4))
-        fig_time.update_layout(margin={"l": 40, "r": 20, "t": 20, "b": 40},
-                               paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-        fig_time.update_xaxes(dtick="M1", tickformat="%b")
+        # formatting based on window
+        if time_window in ("7d","30d"):
+            fig_time.update_xaxes(dtick="D1", tickformat="%d %b")
+        else:
+            fig_time.update_xaxes(dtick="M1", tickformat="%b %Y")
+        fig_time.update_layout(
+            margin={"l":40,"r":20,"t":20,"b":40},
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)"
+        )
+
+
 
     # Top Selling Parts
     df_parts = fetch_top_parts(window=parts_window)
