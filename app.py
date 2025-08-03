@@ -400,7 +400,7 @@ def fetch_active_by_weekday(days: int = 28) -> pd.DataFrame:
 
 # ── Dash app setup ─────────────────────────────────────────────────────────────
 app = Dash(__name__)
-app.title = "MechConnect Dashboard"
+app.title = "Lott.de Dashboard"
 
 server = app.server
 
@@ -416,7 +416,7 @@ app.layout = html.Div(
                 "boxShadow": "0 2px 4px rgba(0,0,0,0.1)"
             },
             children=html.Img(
-                src="/assets/mechconnect-logo.svg",
+                src="/assets/lottautoteile-logo.png",
                 style={"height": "40px"}
             )
         ),
@@ -428,7 +428,7 @@ app.layout = html.Div(
                 # KPI at top
                 html.Div(
                     style={
-                        "backgroundColor": "#EC6936",
+                        "backgroundColor": "#007CC2",
                         "padding": "20px",
                         "borderRadius": "8px",
                         "color": "#FFFFFF",
@@ -872,7 +872,7 @@ def update_dashboard(top_issues_window, parts_window, steps_window, comp_window,
                 type="line", x0=cnt, x1=cnt,
                 y0=center-half, y1=center+half,
                 xref="x", yref="paper",
-                line=dict(color="#EC6936", width=3)
+                line=dict(color="#007CC2", width=3)
             )
 
     df_models = fetch_top_models(window=models_window)
@@ -905,7 +905,7 @@ def update_dashboard(top_issues_window, parts_window, steps_window, comp_window,
                 type="line", x0=cnt, x1=cnt,
                 y0=center-half, y1=center+half,
                 xref="x", yref="paper",
-                line=dict(color="#EC6936", width=3)
+                line=dict(color="#007CC2", width=3)
             )
 
     # Top 5 issues
@@ -944,7 +944,7 @@ def update_dashboard(top_issues_window, parts_window, steps_window, comp_window,
             type="line", x0=cnt, x1=cnt,
             y0=center-half, y1=center+half,
             xref="x", yref="paper",
-            line=dict(color="#EC6936", width=3)
+            line=dict(color="#007CC2", width=3)
         )
 
     # Total chats
@@ -966,7 +966,7 @@ def update_dashboard(top_issues_window, parts_window, steps_window, comp_window,
             labels={"day": "Day", "avg_steps": "Avg Steps"},
             height=360
         )
-        fig_avg.update_traces(line=dict(color="#EC6936"), marker=dict(size=4))
+        fig_avg.update_traces(line=dict(color="#007CC2"), marker=dict(size=4))
         fig_avg.update_layout(
             margin={"l": 40, "r": 20, "t": 20, "b": 40},
             paper_bgcolor="rgba(0,0,0,0)",
@@ -1039,7 +1039,7 @@ def update_dashboard(top_issues_window, parts_window, steps_window, comp_window,
                 xref="paper", yref="y",
                 x0=center-half, x1=center+half,
                 y0=cnt, y1=cnt,
-                line=dict(color="#EC6936", width=3)
+                line=dict(color="#007CC2", width=3)
             )
 
 # ── Avg diagnosis time chart ────────────────────────────────────
@@ -1052,7 +1052,7 @@ def update_dashboard(top_issues_window, parts_window, steps_window, comp_window,
             labels={"date": "Day", "avg_time": "Avg Mins"},
             height=360, line_shape="spline"
         )
-        fig_time.update_traces(line=dict(color="#EC6936"), marker=dict(size=4))
+        fig_time.update_traces(line=dict(color="#007CC2"), marker=dict(size=4))
         # formatting based on window
         if time_window in ("7d","30d"):
             fig_time.update_xaxes(dtick="D1", tickformat="%d %b")
@@ -1105,7 +1105,7 @@ def update_dashboard(top_issues_window, parts_window, steps_window, comp_window,
                 x0=cnt, x1=cnt,
                 y0=center - half, y1=center + half,
                 xref="x", yref="paper",
-                line=dict(color="#EC6936", width=3)
+                line=dict(color="#007CC2", width=3)
             )
 
      # Hourly active users
@@ -1132,7 +1132,7 @@ def update_dashboard(top_issues_window, parts_window, steps_window, comp_window,
         line_shape="spline"
     )
     fig_hour.update_traces(
-        line=dict(color="#EC6936"),
+        line=dict(color="#007CC2"),
         hovertemplate=(
             "%{customdata[0]}<br>"
             "Active Users=%{y}<extra></extra>"
@@ -1187,7 +1187,7 @@ def update_dashboard(top_issues_window, parts_window, steps_window, comp_window,
                 x0=center-half, x1=center+half,
                 xref="x domain",
                 y0=y, y1=y,
-                line=dict(color="#EC6936", width=3)
+                line=dict(color="#007CC2", width=3)
             )
 
     return fig_makes, fig_models, fig_issues, total_chats, fig_avg, fig_comp, fig_time, fig_parts, fig_hour, fig_week
